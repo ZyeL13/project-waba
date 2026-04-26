@@ -1,0 +1,33 @@
+# config.py
+import os
+
+# Load .env (manual, tanpa python-dotenv)
+def _load_env(filepath=".env"):
+    try:
+        with open(filepath) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key not in os.environ:
+                    os.environ[key] = value
+    except FileNotFoundError:
+        pass
+
+_load_env()
+
+# Google Sheets
+SHEETS_CREDENTIALS_FILE = os.environ.get("SHEETS_CREDENTIALS", "credentials.json")
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1T1KPo-ZmDQPOHrEB9xs8EVI8klh7EFwPczB9c0d1Ykg")  # ganti dengan ID sheet kamu
+RANGE_NAME = "Sheet1!A:D"  # sesuaikan
+BATCH_SIZE = 50  # bisa diubah
+
+# LLM Fallback
+LLM_ENABLED = os.environ.get("LLM_ENABLED", "false").lower() == "true"
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_MODEL = os.environ.get("LLM_MODEL", "free/deepseek-v3.2")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8402/v1")
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "20.0"))
