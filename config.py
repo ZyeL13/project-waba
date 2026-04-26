@@ -31,3 +31,6 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "free/deepseek-v3.2")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8402/v1")
 LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "20.0"))
+
+# File watcher
+FILES_DIR = os.environ.get("FILES_DIR", "files")

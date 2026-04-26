@@ -1,4 +1,3 @@
-# file_watcher.py
 import os
 import asyncio
 import logging
@@ -6,22 +5,21 @@ import logging
 logger = logging.getLogger("file_watcher")
 
 class FileWatcher:
-    def __init__(self, directory: str, callback, interval: float = 10.0):
+    def __init__(self, directory: str, on_change=None, on_delete=None, interval: float = 10.0):
         self.directory = directory
-        self.callback = callback          # async function(filepath)
+        self.on_change = on_change
+        self.on_delete = on_delete
         self.interval = interval
-        self._last_mtimes = {}            # filepath -> mtime
+        self._last_mtimes = {}
         self._running = False
 
     async def start(self):
         self._running = True
         os.makedirs(self.directory, exist_ok=True)
-        # inisialisasi mtimes dari file yang sudah ada
         for fname in os.listdir(self.directory):
             fpath = os.path.join(self.directory, fname)
             if os.path.isfile(fpath):
                 self._last_mtimes[fpath] = os.path.getmtime(fpath)
-                logger.debug(f"Registered {fpath}")
         while self._running:
             try:
                 await self._scan()
@@ -41,14 +39,14 @@ class FileWatcher:
             if last is None or mtime > last:
                 logger.info(f"Perubahan terdeteksi: {fpath}")
                 self._last_mtimes[fpath] = mtime
-                if self.callback:
-                    await self.callback(fpath)
-        # hapus file yang sudah tidak ada
+                if self.on_change:
+                    await self.on_change(fpath)
         removed = set(self._last_mtimes.keys()) - seen
         for fpath in removed:
             del self._last_mtimes[fpath]
             logger.info(f"File dihapus: {fpath}")
-            # callback mungkin untuk menghapus dari index (opsional)
+            if self.on_delete:
+                await self.on_delete(fpath)
 
     async def stop(self):
         self._running = False
