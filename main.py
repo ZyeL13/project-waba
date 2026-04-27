@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import signal
 import time
 
 from aiohttp import web
@@ -15,10 +16,13 @@ import handlers.help as help_handler
 import handlers.my_commands as cmd_handler
 import handlers.search as search_handler
 import handlers.keywords as keywords
+import handlers.gl as gl_handler
+import handlers.balance as balance_handler
 import file_watcher
 import indexer
 import llm
 import whatsapp_adapter
+import telegram_adapter
 from sheets import SheetsClient
 
 # ===== Logging =====
@@ -41,6 +45,9 @@ COMMAND_MAP = {
     'add': cmd_handler.handle_add,
     'search': search_handler.handle_search,
     'help': help_handler.handle_help,
+    'catat': gl_handler.handle_catat,
+    'saldo': balance_handler.handle_balance,
+    'neraca': balance_handler.handle_neraca,
 }
 
 start_time = time.time()
@@ -58,13 +65,26 @@ async def on_startup(app):
         interval=10.0
     )
     app['watcher_task'] = asyncio.create_task(watcher.start())
+
+    if config.TELEGRAM_TOKEN:
+        app['telegram_task'] = asyncio.create_task(
+            telegram_adapter.start_polling(
+                token=config.TELEGRAM_TOKEN,
+                on_message=process_message,
+                interval=config.TELEGRAM_POLL_INTERVAL
+            )
+        )
+        logger.info("Telegram polling dimulai")
+
     logger.info("Bot siap")
 
 async def on_cleanup(app):
-    tasks = [app['worker_task'], app['cleanup_task'], app['watcher_task']]
-    for t in tasks:
-        t.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = ['worker_task', 'cleanup_task', 'watcher_task', 'telegram_task']
+    for key in tasks:
+        t = app.get(key)
+        if t:
+            t.cancel()
+    await asyncio.gather(*[app[k] for k in tasks if app.get(k)], return_exceptions=True)
     logger.info("Bot dimatikan bersih")
 
 async def periodic_cleanup():
@@ -72,9 +92,8 @@ async def periodic_cleanup():
         await asyncio.sleep(300)
         await limiter.cleanup_stale()
 
-# ===== Webhook Internal Handler =====
+# ===== Process Message =====
 async def process_message(user_id: str, text: str) -> str:
-    """Return text balasan untuk user"""
     if not await limiter.allow(user_id):
         return "Terlalu banyak permintaan. Coba lagi nanti."
 
@@ -89,7 +108,10 @@ async def process_message(user_id: str, text: str) -> str:
             logger.exception(f"Error /{cmd}: {e}")
             return "Terjadi kesalahan internal."
 
-    # Bukan command
+    pending_reply = await gl_handler.resolve_clarification(user_id, text)
+    if pending_reply is not None:
+        return pending_reply
+
     kw_reply = await keywords.check_keywords(text)
     if kw_reply:
         return kw_reply
@@ -101,24 +123,20 @@ async def process_message(user_id: str, text: str) -> str:
 
     return "Perintah tidak dikenal. Coba /help."
 
-# ===== Route: Generic Webhook =====
+# ===== Routes =====
 async def webhook(request):
     try:
         data = await request.json()
     except Exception:
         return web.json_response({"text": "Invalid JSON"}, status=400)
-
     uid = str(data.get('from', {}).get('id', ''))
     text = data.get('text', '').strip()
     if not uid or not text:
         return web.json_response({"text": "Bad request"}, status=400)
-
     reply = await process_message(uid, text)
     return web.json_response({"text": reply})
 
-# ===== Route: WhatsApp Webhook =====
 async def whatsapp_webhook(request):
-    # Verifikasi webhook (GET)
     if request.method == 'GET':
         mode = request.query.get('hub.mode')
         token = request.query.get('hub.verify_token')
@@ -126,26 +144,16 @@ async def whatsapp_webhook(request):
         if mode == 'subscribe' and token == whatsapp_adapter.WHATSAPP_VERIFY_TOKEN:
             return web.Response(text=challenge, status=200)
         return web.Response(text="Verification failed", status=403)
-
-    # Proses pesan masuk (POST)
     try:
         payload = await request.json()
     except Exception:
         return web.Response(text="Invalid JSON", status=400)
-
     messages = whatsapp_adapter.normalize(payload)
     for msg in messages:
-        uid = msg['from']['id']
-        text = msg['text']
-        if not uid or not text:
-            continue
-        reply = await process_message(uid, text)
-        # Kirim balasan via WhatsApp API
-        await whatsapp_adapter.send_reply(uid, reply)
-
+        reply = await process_message(msg['from']['id'], msg['text'])
+        await whatsapp_adapter.send_reply(msg['from']['id'], reply)
     return web.Response(text="ok", status=200)
 
-# ===== Route: Stats =====
 async def stats(request):
     return web.json_response({
         "status": "ok",
@@ -154,18 +162,43 @@ async def stats(request):
         "memory": "ok"
     })
 
-# ===== App Init =====
+# ===== App =====
 app = web.Application()
 app.router.add_post('/webhook', webhook)
 app.router.add_get('/webhook', lambda r: web.json_response({"status": "ok"}))
 app.router.add_route('*', '/whatsapp', whatsapp_webhook)
 app.router.add_get('/health', lambda r: web.json_response({"status": "ok"}))
 app.router.add_get('/stats', stats)
-
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 
+# ===== Entry Point =====
 if __name__ == '__main__':
+    import subprocess, sys
+
     port = int(os.environ.get("PORT", 8080))
     logger.info(f"Menjalankan di port {port}")
+
+    # Auto-kill proses python main.py yang lain (pakai Python, bukan shell)
+    try:
+        import signal as sig
+        current_pid = os.getpid()
+        for pid_str in os.listdir('/proc'):
+            if not pid_str.isdigit():
+                continue
+            pid = int(pid_str)
+            if pid == current_pid:
+                continue
+            try:
+                with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                    cmd = f.read().decode(errors='ignore')
+                if 'python' in cmd and 'main.py' in cmd:
+                    os.kill(pid, sig.SIGKILL)
+                    logger.info(f"Killed old process PID {pid}")
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                pass
+        time.sleep(0.5)
+    except Exception as e:
+        logger.warning(f"Auto-kill gagal: {e}")
+
     web.run_app(app, host='0.0.0.0', port=port)

@@ -1,8 +1,8 @@
-# db.py (versi terbaru)
+# db.py
 import aiosqlite
 import asyncio
+from config import DB_PATH
 
-DB_PATH = "bot.db"
 _lock = asyncio.Lock()
 _conn: aiosqlite.Connection | None = None
 
@@ -19,12 +19,16 @@ async def get_connection() -> aiosqlite.Connection:
 
 async def init_db():
     db = await get_connection()
+
+    # Tabel user (lama)
     await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id TEXT PRIMARY KEY,
             role TEXT NOT NULL DEFAULT 'guest'
         )
     """)
+
+    # Tabel log (lama)
     await db.execute("""
         CREATE TABLE IF NOT EXISTS command_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +38,8 @@ async def init_db():
             timestamp REAL
         )
     """)
+
+    # Tabel items (lama)
     await db.execute("""
         CREATE TABLE IF NOT EXISTS items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +48,8 @@ async def init_db():
             ts REAL
         )
     """)
+
+    # File index FTS5 (lama)
     await db.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS file_index USING fts5(
             filepath,
@@ -49,6 +57,44 @@ async def init_db():
             tokenize='unicode61'
         )
     """)
+
+    # ===== GL: Chart of Accounts =====
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL
+        )
+    """)
+
+    # Seed akun standar (abaikan jika sudah ada)
+    seed_accounts = [
+        ("cash",      "Cash",       "asset"),
+        ("revenue",   "Revenue",    "revenue"),
+        ("expense",   "Expense",    "expense"),
+        ("asset",     "Asset",      "asset"),
+        ("liability", "Liability",  "liability"),
+    ]
+    await db.executemany(
+        "INSERT OR IGNORE INTO accounts (id, name, type) VALUES (?, ?, ?)",
+        seed_accounts
+    )
+
+    # ===== GL: Journal Entries =====
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            description TEXT,
+            account_id TEXT NOT NULL,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            confidence REAL,
+            FOREIGN KEY (account_id) REFERENCES accounts(id)
+        )
+    """)
+
     await db.commit()
 
 async def execute_write(sql: str, params=()):
@@ -56,3 +102,15 @@ async def execute_write(sql: str, params=()):
     async with _lock:
         await db.execute(sql, params)
         await db.commit()
+
+async def execute_write_many(sql: str, params_list: list):
+    """Insert banyak row sekaligus (satu transaksi)"""
+    db = await get_connection()
+    async with _lock:
+        await db.executemany(sql, params_list)
+        await db.commit()
+
+async def fetch_all(sql: str, params=()):
+    db = await get_connection()
+    async with db.execute(sql, params) as cursor:
+        return await cursor.fetchall()

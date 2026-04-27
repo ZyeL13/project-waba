@@ -1,7 +1,6 @@
 # config.py
 import os
 
-# Load .env (manual, tanpa python-dotenv)
 def _load_env(filepath=".env"):
     try:
         with open(filepath) as f:
@@ -19,18 +18,25 @@ def _load_env(filepath=".env"):
 
 _load_env()
 
+# Database
+DB_PATH = os.environ.get("DB_PATH", "bot.db")
+
 # Google Sheets
 SHEETS_CREDENTIALS_FILE = os.environ.get("SHEETS_CREDENTIALS", "credentials.json")
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1T1KPo-ZmDQPOHrEB9xs8EVI8klh7EFwPczB9c0d1Ykg")  # ganti dengan ID sheet kamu
-RANGE_NAME = "Sheet1!A:D"  # sesuaikan
-BATCH_SIZE = 50  # bisa diubah
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1T1KPo-ZmDQPOHrEB9xs8EVI8klh7EFwPczB9c0d1Ykg")
+RANGE_NAME = "Sheet1!A:E"
+BATCH_SIZE = 50
+
+# Telegram (polling)
+TELEGRAM_TOKEN = os.environ.get("RIOT_TOKEN", "")
+TELEGRAM_POLL_INTERVAL = float(os.environ.get("TELEGRAM_POLL_INTERVAL", "2"))
 
 # LLM Fallback
 LLM_ENABLED = os.environ.get("LLM_ENABLED", "false").lower() == "true"
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "free/deepseek-v3.2")
+LLM_MODEL = os.environ.get("LLM_MODEL", "free")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8402/v1")
-LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "20.0"))
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "30.0"))
 
 # File watcher
 FILES_DIR = os.environ.get("FILES_DIR", "files")
