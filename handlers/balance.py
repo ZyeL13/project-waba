@@ -62,7 +62,7 @@ async def handle_neraca(user_id: str, args: list) -> str:
         # Konversi revenue/expense ke ekuitas (retained earnings)
         if acc_type in ('revenue', 'expense'):
             key = 'equity'
-            balances[key] = balances.get(key, 0) + (net if acc_type == 'revenue' else -net)
+            balances[key] = balances.get(key, 0) + (-net)
         else:
             balances[acc_type] = balances.get(acc_type, 0) + net
 
