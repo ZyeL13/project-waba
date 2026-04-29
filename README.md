@@ -2,24 +2,21 @@
 
 **Lightweight General Ledger Bot — Double-Entry Accounting in Chat**
 
-A production-ready Telegram/WhatsApp automation system with built-in **General Ledger (GL) double-entry accounting**. Parse natural language transactions, get real-time financial reports, all from your chat app.
+A production-ready Telegram/WhatsApp automation system with built-in **General Ledger (GL) double-entry accounting**. Parse transactions via shorthand, natural language, or full double-entry — export to Excel instantly.
 
 ---
 
 ## 📸 Overview
 
-| Feature | Command |
-|---------|---------|
-| Record transaction | `/catat client transfer 2 juta` |
-| Check balance | `/saldo` |
-| Financial statement | `/neraca` |
-| Search files | `/search <keyword>` |
-| Add item (operator) | `/add <item>` |
-| Help | `/help` |
+| Mode | Input | Latency |
+|------|-------|---------|
+| **Shorthand** | `i sal 300` | 0ms (regex) |
+| **Natural** | `/catat client transfer 2 juta` | regex → clarify → LLM |
+| **Full GL** | `/catat bayar listrik 500rb` | regex 0ms |
+| **Reports** | `/saldo`, `/neraca` | instant |
+| **Export** | `/export` | Excel file |
 
-**Smart clarification**: If a transaction is ambiguous (e.g., "client transfer" → revenue or liability?), the bot asks once. Reply with one word and it completes the entry.
-
-**Auto-reply keywords**: No LLM needed for common greetings ("halo", "pagi", "makasih").
+**Smart clarification**: If ambiguous, bot asks once. Reply with one word.
 
 ---
 
@@ -27,14 +24,12 @@ A production-ready Telegram/WhatsApp automation system with built-in **General L
 
 ```
 
-User: /catat client transfer 2 juta
-Bot:  ⚠️ Revenue or liability? (revenue/liability)
-User: revenue
+User: i sal 300
 Bot:  ✅ Transaksi tercatat:
-+ Debit  cash       Rp   2,000,000  (Client transfer for revenue)
-- Kredit revenue    Rp   2,000,000  (Revenue from client transfer)
++ Debit  cash       Rp         300  (Income: sal)
+- Kredit revenue    Rp         300  (Revenue from sal)
 ────────────────────────────────────────
-Balance: ✅  D=2,000,000  K=2,000,000
+Balance: ✅  D=300  K=300
 Confidence: 100% | Tipe: revenue
 
 ```
@@ -42,8 +37,22 @@ Confidence: 100% | Tipe: revenue
 **Double-entry accounting** with strict validation:
 - Total Debit = Total Credit (always balanced)
 - Chart of accounts: `cash`, `revenue`, `expense`, `asset`, `liability`
-- Informal number normalization: `10rb` → `10000`, `5 juta` → `5000000`
+- Shorthand grammar parser (0ms, no LLM)
+- Natural language classifier (regex-first, LLM fallback)
 - Stateful clarification: pending transactions remembered per user
+
+---
+
+## ⌨️ Shorthand Grammar
+
+| Shorthand | Meaning |
+|-----------|---------|
+| `i sal 300` | Income: sales Rp300 |
+| `e food 20` | Expense: food Rp20 |
+| `b btc 0.001` | Buy: bitcoin 0.001 |
+| `t bank cash 500` | Transfer bank → cash Rp500 |
+
+No `/catat` needed — just type it directly.
 
 ---
 
@@ -56,8 +65,6 @@ Confidence: 100% | Tipe: revenue
 CASH         Rp   2,000,000  (Debit)
 REVENUE      Rp   2,000,000  (Kredit)
 ────────────────────────────────────
-Total Debit : Rp   2,000,000
-Total Kredit: Rp   2,000,000
 Status: ✅ Balance
 
 ```
@@ -74,11 +81,19 @@ KEWAJIBAN & EKUITAS
 Liabilitas   Rp           0
 Ekuitas      Rp   2,000,000
 ──────────────────────────────
-Total K+E    Rp   2,000,000
-
 Status: ✅ Balance
 
 ```
+
+### `/export` — Download Excel Template
+```
+
+/export
+Bot: 📎 File ledger_1089039279_20260429.xlsx telah dikirim.
+
+```
+
+You get a properly formatted **General Ledger Template** (`.xlsx`) directly in Telegram.
 
 ---
 
@@ -86,161 +101,67 @@ Status: ✅ Balance
 
 ```
 
-┌─────────────────────────────────┐
-│  Telegram / WhatsApp            │
-│  (polling or webhook)           │
-└────────────┬────────────────────┘
+User Input
 │
-┌────────────▼────────────────────┐
-│  aiohttp HTTP Server            │
-│  ┌──────────────────────────┐  │
-│  │ Rate Limiter (sliding)   │  │
-│  │ Command Parser           │  │
-│  │ GL Engine (LLM + JSON)   │  │
-│  │ Auto-reply Keywords      │  │
-│  └──────────────────────────┘  │
-└────────────┬────────────────────┘
+├─ Shorthand (regex, 0ms)
+├─ Natural lang (regex classifier → LLM fallback)
 │
-┌────────────▼────────────────────┐
-│  SQLite (WAL mode)             │
-│  ├─ journal (GL entries)       │
-│  ├─ accounts (chart)           │
-│  ├─ file_index (FTS5 search)   │
-│  └─ items, command_log         │
-└────────────┬────────────────────┘
+├─ GL Engine (double-entry validation)
 │
-┌────────────▼────────────────────┐
-│  Google Sheets (batch write)   │
-│  File Watcher (auto-index)     │
-│  LLM Fallback (DeepSeek V3.2)  │
-└─────────────────────────────────┘
+├─ SQLite (journal, accounts, FTS5)
+│
+├─ Formatters (text, ledger_template, ...)
+├─ Exporters (XLSX, ...)
+│
+└─ Telegram / WhatsApp Output
 
 ```
+
+**Template system**: add new client → branch repo → change `OUTPUT_FORMAT` → done.
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- Python 3.13+
-- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- [ClawRouter](https://openclaw.ai) or any OpenAI-compatible API (optional, for GL & chat)
-- Google Sheets Service Account (optional, for `/add` persistence)
-
-### 1. Clone & Setup
 ```bash
 git clone https://github.com/ZyeL13/project-waba.git
 cd project-waba
 pip install -r requirements.txt
-```
-
-2. Configure .env
-
-```env
-# Telegram
-TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
-
-# LLM (via ClawRouter or OpenAI-compatible API)
-LLM_ENABLED=true
-LLM_BASE_URL=http://127.0.0.1:8402/v1
-LLM_MODEL=free/deepseek-v3.2
-LLM_TIMEOUT=20.0
-
-# Google Sheets (optional)
-SPREADSHEET_ID=1BxiMVs0XRA5nFMdKvBdBZjgmUUq7oHQt2CvMhD_lZA
-```
-
-3. Run
-
-```bash
+cp .env.example .env   # edit TELEGRAM_TOKEN, LLM, etc.
 python main.py
 ```
 
-The bot will start polling Telegram immediately. Send /help to your bot to verify.
-
 ---
 
-📦 Dependencies
+📦 Project Structure
 
-Minimal & lightweight — no heavy frameworks.
-
-Package Purpose
-aiohttp HTTP server + async API calls
-aiosqlite Async SQLite with WAL mode
-google-auth Google Sheets API (optional)
-requests Auth token refresh
+```
+project-waba/
+├── main.py               # Server entry point
+├── config.py             # Environment config + OUTPUT_FORMAT
+├── parser_shorthand.py   # Shorthand grammar (i sal 300)
+├── parser_regex.py       # Natural language regex classifier
+├── llm.py                # GL parser (LLM fallback)
+├── telegram_adapter.py   # Telegram polling + file upload
+├── whatsapp_adapter.py   # WhatsApp Cloud API (ready)
+├── formatters/           # Output formatters (text, ledger)
+├── exporters/            # File exporters (XLSX)
+├── handlers/             # Commands (/catat, /saldo, /neraca, /export)
+└── files/                # Watched directory for /search
+```
 
 ---
 
 🛡 Reliability
 
-· Rate limiting: 5 req/sec per user (sliding window)
-· Retry logic: 3x with exponential backoff for LLM & Sheets API
-· Graceful shutdown: Ctrl+C once, all background tasks cleaned
-· Multi-tenant ready: Per-client .env, isolated DB & files via Docker
-· Zero silent failures: Every error logged to stdout + bot.log
+· Rate limiting: 5 req/sec per user
+· Retry logic: 3x with backoff
+· Graceful shutdown: Ctrl+C once, port freed
+· Multi-tenant ready: per-client .env, isolated DB via Docker
+· Zero silent failures: all errors logged
 
 ---
 
-🐳 Docker (Production)
-
-```bash
-docker build -t zyel-engine .
-docker run --rm --env-file .env.client-a \
-  -v $(pwd)/data/client-a:/app/data \
-  -v $(pwd)/files/client-a:/app/files \
-  -p 8080:8080 \
-  zyel-engine
 ```
-
-Multi-client with docker-compose:
-
-```bash
-docker-compose up -d
-```
-
----
-
-📁 Project Structure
-
-```
-project-waba/
-├── main.py               # Server entry point
-├── config.py             # Environment config
-├── db.py                 # SQLite + journal tables
-├── llm.py                # GL parser (strict JSON LLM)
-├── parser.py             # Deterministic /command parser
-├── telegram_adapter.py   # Telegram polling
-├── whatsapp_adapter.py   # WhatsApp Cloud API (ready)
-├── rate_limiter.py       # Sliding window per-user
-├── queue_worker.py       # Batch Google Sheets writes
-├── file_watcher.py       # File change → auto-index
-├── indexer.py            # FTS5 full-text indexer
-├── handlers/
-│   ├── gl.py             # /catat (GL double-entry)
-│   ├── balance.py        # /saldo + /neraca
-│   ├── my_commands.py    # /add
-│   ├── search.py         # /search
-│   ├── help.py           # /help
-│   └── keywords.py       # Auto-reply
-└── files/                # Watched directory
-```
-
----
-
-🔮 Roadmap
-
-· /buku — Recent journal entries
-· /export — Export to CSV/PDF
-· Multi-currency support
-· WhatsApp Cloud API live test
-· Web dashboard (minimal)
-
----
-```
-
 Built with ☕ in Termux • MIT License
-
 ```
-
----

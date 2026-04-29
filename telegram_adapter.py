@@ -60,3 +60,26 @@ async def send_message(token: str, chat_id: str, text: str) -> bool:
     except Exception as e:
         logger.exception(f"Telegram send failed: {e}")
         return False
+
+async def send_document(token: str, chat_id: str, filepath: str, filename: str) -> bool:
+    """Kirim file dokumen via Telegram."""
+    if not token:
+        return False
+    url = f"{TELEGRAM_API}/bot{token}/sendDocument"
+    data = {"chat_id": chat_id}
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            with open(filepath, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("chat_id", chat_id)
+                form.add_field("document", f, filename=filename, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                async with session.post(url, data=form) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Document sent to {chat_id}: {filename}")
+                        return True
+                    logger.error(f"Send document error {resp.status}: {await resp.text()}")
+                    return False
+    except Exception as e:
+        logger.exception(f"Send document failed: {e}")
+        return False

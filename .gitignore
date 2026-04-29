@@ -22,3 +22,4 @@ Thumbs.db
 # Test
 test_*.py
 test_*.db*
+.bot.pid

@@ -5,7 +5,7 @@ import signal
 import time
 
 from aiohttp import web
-
+import parser_shorthand
 import config
 import db
 import auth
@@ -24,6 +24,8 @@ import llm
 import whatsapp_adapter
 import telegram_adapter
 from sheets import SheetsClient
+import signal, sys
+import handlers.export_handler as export_handler
 
 # ===== Logging =====
 logging.basicConfig(
@@ -48,6 +50,7 @@ COMMAND_MAP = {
     'catat': gl_handler.handle_catat,
     'saldo': balance_handler.handle_balance,
     'neraca': balance_handler.handle_neraca,
+    'export': export_handler.handle_export,
 }
 
 start_time = time.time()
@@ -108,9 +111,19 @@ async def process_message(user_id: str, text: str) -> str:
             logger.exception(f"Error /{cmd}: {e}")
             return "Terjadi kesalahan internal."
 
+    # Cek pending GL (user menjawab klarifikasi)
     pending_reply = await gl_handler.resolve_clarification(user_id, text)
     if pending_reply is not None:
         return pending_reply
+
+    # ── NEW: Deteksi shorthand transaction (tanpa /catat) ──────────────────
+    shorthand = parser_shorthand.parse_shorthand(text)
+    if isinstance(shorthand, dict) and "entries" in shorthand:
+        # Arahkan langsung ke GL engine
+        return await gl_handler._process_gl(user_id, text)
+    elif isinstance(shorthand, dict) and "error" in shorthand:
+        return f"❌ {shorthand['error']}"
+    # ──────────────────────────────────────────────────────────────────────
 
     kw_reply = await keywords.check_keywords(text)
     if kw_reply:
@@ -174,31 +187,41 @@ app.on_cleanup.append(on_cleanup)
 
 # ===== Entry Point =====
 if __name__ == '__main__':
-    import subprocess, sys
+    import atexit
 
     port = int(os.environ.get("PORT", 8080))
-    logger.info(f"Menjalankan di port {port}")
+    PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bot.pid")
 
-    # Auto-kill proses python main.py yang lain (pakai Python, bukan shell)
+    # ── Auto-kill proses lama via pidfile ─────────────────────────────────
     try:
-        import signal as sig
-        current_pid = os.getpid()
-        for pid_str in os.listdir('/proc'):
-            if not pid_str.isdigit():
-                continue
-            pid = int(pid_str)
-            if pid == current_pid:
-                continue
+        with open(PID_FILE) as f:
+            old_pid = int(f.read().strip())
+        try:
+            os.kill(old_pid, signal.SIGTERM)
+            logger.info(f"Menghentikan proses lama (PID {old_pid})...")
+            time.sleep(0.5)
             try:
-                with open(f'/proc/{pid}/cmdline', 'rb') as f:
-                    cmd = f.read().decode(errors='ignore')
-                if 'python' in cmd and 'main.py' in cmd:
-                    os.kill(pid, sig.SIGKILL)
-                    logger.info(f"Killed old process PID {pid}")
-            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                os.kill(old_pid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
-        time.sleep(0.5)
-    except Exception as e:
-        logger.warning(f"Auto-kill gagal: {e}")
+        except ProcessLookupError:
+            pass
+    except (FileNotFoundError, ValueError):
+        pass
 
-    web.run_app(app, host='0.0.0.0', port=port)
+    # ── Tulis PID baru ────────────────────────────────────────────────────
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    def _cleanup_pidfile():
+        try:
+            os.remove(PID_FILE)
+        except FileNotFoundError:
+            pass
+
+    atexit.register(_cleanup_pidfile)
+
+    # ── Start server ──────────────────────────────────────────────────────
+    logger.info(f"Menjalankan di port {port}")
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    web.run_app(app, host='0.0.0.0', port=port, shutdown_timeout=3.0)

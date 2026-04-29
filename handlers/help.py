@@ -9,6 +9,7 @@ async def handle_help(user_id: str, args: list) -> str:
   /add [item]      – Tambah item (operator only)
   /search [kata]   – Cari di file terindeks
   /help            – Tampilkan bantuan ini
+  /export          – Export ledger ke file Excel
 
 💬 Chat bebas akan dijawab otomatis.
 📂 File di *files/* otomatis terindeks.
